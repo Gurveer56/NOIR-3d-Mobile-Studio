@@ -10,6 +10,14 @@ NOIR Mobile Studio is a demo app built with Expo and React Native that showcases
 - Light and dark theme support
 - Expo Router navigation for mobile-first product browsing
 
+## Screenshots
+
+Add app screenshots to `assets/screenshots/` using these filenames to show the preview on GitHub:
+
+| Home | Product Detail |
+| --- | --- |
+| ![NOIR Mobile Studio home screen](assets/screenshots/home.png) | ![NOIR Mobile Studio product detail screen](assets/screenshots/product-detail.png) |
+
 ## Tech Stack
 
 - Expo 54
