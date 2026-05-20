@@ -1,92 +1,92 @@
-import React, { useState, useCallback } from 'react';
-import {
-  View,
-  Text,
-  TextInput,
-  FlatList,
-  StyleSheet,
-  Pressable,
-  Dimensions,
-} from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { LegendList } from '@legendapp/list';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Search, Settings, SlidersHorizontal } from 'lucide-react-native';
-import Animated, { FadeInDown } from 'react-native-reanimated';
+import { useRouter } from 'expo-router';
+import { MoonStar, Search, SunMedium } from 'lucide-react-native';
 import ShirtCard from '../../components/ShirtCard';
-import { Colors, Typography, Spacing, BorderRadius } from '../../constants/theme';
+import { BorderRadius, Spacing, Typography } from '../../constants/theme';
 import { SHIRTS } from '../../constants/shirts';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const CARD_WIDTH = (SCREEN_WIDTH - Spacing.lg * 2 - Spacing.md) / 2;
+import { useAppTheme } from '../../hooks/useAppTheme';
 
 export default function HomeScreen() {
+  const router = useRouter();
+  const { colors, isDark, toggleTheme } = useAppTheme();
   const [search, setSearch] = useState('');
 
-  const filteredShirts = SHIRTS.filter(
-    (s) =>
-      s.name.toLowerCase().includes(search.toLowerCase()) ||
-      s.brand.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredShirts = useMemo(() => {
+    const term = search.trim().toLowerCase();
 
-  const renderHeader = useCallback(() => (
-    <View style={styles.headerContent}>
-      <View>
-        <Animated.Text
-          entering={FadeInDown.duration(400).delay(100)}
-          style={styles.greeting}
-        >
-          Welcome back
-        </Animated.Text>
-        <Animated.Text
-          entering={FadeInDown.duration(400).delay(200)}
-          style={styles.title}
-        >
-          NOIR
-        </Animated.Text>
-      </View>
-      <Pressable
-        style={styles.settingsButton}
-        hitSlop={12}
-      >
-        <Settings color={Colors.white} size={20} strokeWidth={1.5} />
-      </Pressable>
-    </View>
-  ), []);
+    if (!term) {
+      return SHIRTS;
+    }
 
-  const renderSearch = useCallback(() => (
-    <Animated.View
-      entering={FadeInDown.duration(400).delay(300)}
-      style={styles.searchContainer}
-    >
-      <Search color={Colors.gray400} size={18} strokeWidth={1.5} />
-      <TextInput
-        style={styles.searchInput}
-        placeholder="Search shirts..."
-        placeholderTextColor={Colors.gray500}
-        value={search}
-        onChangeText={setSearch}
-      />
-      <Pressable style={styles.filterButton} hitSlop={8}>
-        <SlidersHorizontal color={Colors.gray400} size={16} strokeWidth={1.5} />
-      </Pressable>
-    </Animated.View>
-  ), [search]);
+    return SHIRTS.filter(
+      (shirt) =>
+        shirt.name.toLowerCase().includes(term) ||
+        shirt.brand.toLowerCase().includes(term) ||
+        shirt.fibre.toLowerCase().includes(term)
+    );
+  }, [search]);
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <StatusBar style="light" />
-      {renderHeader()}
-      {renderSearch()}
-      <FlatList
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+      <StatusBar style={isDark ? 'light' : 'dark'} />
+
+      <View style={styles.header}>
+        <View
+          style={[
+            styles.searchBox,
+            {
+              backgroundColor: colors.panel,
+              borderColor: colors.cardBorder,
+            },
+          ]}
+        >
+          <Search color={colors.gray400} size={18} strokeWidth={1.8} />
+          <TextInput
+            value={search}
+            onChangeText={setSearch}
+            placeholder="Search shirts"
+            placeholderTextColor={colors.gray500}
+            style={[styles.searchInput, { color: colors.gray100 }]}
+          />
+        </View>
+
+        <Pressable
+          onPress={toggleTheme}
+          hitSlop={10}
+          style={[
+            styles.themeButton,
+            {
+              backgroundColor: colors.panel,
+              borderColor: colors.cardBorder,
+            },
+          ]}
+        >
+          {isDark ? (
+            <SunMedium color={colors.gray100} size={19} strokeWidth={1.8} />
+          ) : (
+            <MoonStar color={colors.gray100} size={19} strokeWidth={1.8} />
+          )}
+        </Pressable>
+      </View>
+
+      <LegendList
         data={filteredShirts}
-        keyExtractor={(item) => item.id}
+        estimatedItemSize={326}
+        recycleItems
+        style={styles.list}
+        contentContainerStyle={styles.listContent}
+        keyExtractor={(shirt) => shirt.id}
         renderItem={({ item, index }) => (
-          <ShirtCard shirt={item} index={index} cardWidth={CARD_WIDTH} />
+          <ShirtCard
+            shirt={item}
+            index={index}
+            onPress={(selected) => router.push(`/product/${selected.id}`)}
+          />
         )}
-        numColumns={2}
-        columnWrapperStyle={styles.row}
-        contentContainerStyle={styles.list}
-        showsVerticalScrollIndicator={false}
         ListFooterComponent={<View style={styles.footerSpacer} />}
       />
     </SafeAreaView>
@@ -96,68 +96,47 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.black,
   },
-  headerContent: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+  list: {
+    flex: 1,
+  },
+  listContent: {
     paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.sm,
-    paddingBottom: Spacing.md,
+    paddingBottom: 112,
   },
-  greeting: {
-    ...Typography.caption,
-    color: Colors.gray400,
-    fontFamily: 'Inter-Regular',
-  },
-  title: {
-    ...Typography.h1,
-    color: Colors.white,
-    fontFamily: 'Inter-Bold',
-    letterSpacing: 4,
-  },
-  settingsButton: {
-    width: 44,
-    height: 44,
-    borderRadius: BorderRadius.full,
-    backgroundColor: Colors.gray800,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: Colors.cardBorder,
-  },
-  searchContainer: {
+  header: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginHorizontal: Spacing.lg,
-    marginBottom: Spacing.lg,
-    paddingHorizontal: Spacing.md,
-    height: 48,
-    backgroundColor: Colors.gray800,
-    borderRadius: BorderRadius.md,
+    gap: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.md,
+    marginBottom: Spacing.md,
+  },
+  searchBox: {
+    flex: 1,
+    height: 50,
+    borderRadius: BorderRadius.full,
     borderWidth: 1,
-    borderColor: Colors.cardBorder,
+    paddingHorizontal: Spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: Spacing.sm,
   },
   searchInput: {
     flex: 1,
     ...Typography.body,
-    color: Colors.white,
     fontFamily: 'Inter-Regular',
     paddingVertical: 0,
   },
-  filterButton: {
-    padding: Spacing.xs,
-  },
-  row: {
-    gap: Spacing.md,
-    paddingHorizontal: Spacing.lg,
-  },
-  list: {
-    gap: Spacing.md,
+  themeButton: {
+    width: 50,
+    height: 50,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   footerSpacer: {
-    height: Spacing.xxl,
+    height: Spacing.lg,
   },
 });

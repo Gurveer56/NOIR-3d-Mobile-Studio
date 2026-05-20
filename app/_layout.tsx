@@ -1,3 +1,4 @@
+import 'react-native-gesture-handler';
 import { useEffect } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -10,12 +11,13 @@ import {
 } from '@expo-google-fonts/inter';
 import { SplashScreen } from 'expo-router';
 import { useFrameworkReady } from '@/hooks/useFrameworkReady';
-import { Colors } from '../constants/theme';
+import { AppThemeProvider, useAppTheme } from '../hooks/useAppTheme';
 
 SplashScreen.preventAutoHideAsync();
 
-export default function RootLayout() {
+function RootLayoutContent() {
   useFrameworkReady();
+  const { colors, isDark } = useAppTheme();
 
   const [fontsLoaded, fontError] = useFonts({
     'Inter-Regular': Inter_400Regular,
@@ -36,7 +38,7 @@ export default function RootLayout() {
 
   return (
     <>
-      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: Colors.black } }}>
+      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen
           name="product/[id]"
@@ -47,7 +49,15 @@ export default function RootLayout() {
         />
         <Stack.Screen name="+not-found" />
       </Stack>
-      <StatusBar style="light" />
+      <StatusBar style={isDark ? 'light' : 'dark'} />
     </>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <AppThemeProvider>
+      <RootLayoutContent />
+    </AppThemeProvider>
   );
 }

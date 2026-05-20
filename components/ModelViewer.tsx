@@ -1,22 +1,63 @@
-import React, { useRef, useMemo, useEffect, useState, Suspense } from 'react';
-import { View, StyleSheet, TouchableOpacity, Text, Platform, ActivityIndicator } from 'react-native';
-import { Canvas, useFrame } from '@react-three/fiber';
-import { useGLTF, OrbitControls } from '@react-three/drei';
-import { Asset } from 'expo-asset';
+import React, {
+  forwardRef,
+  Suspense,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { View, StyleSheet, Text, ActivityIndicator, StyleProp, ViewStyle } from 'react-native';
+import { Canvas, useFrame, useThree } from '@react-three/fiber/native';
+import { OrbitControls, useGLTF } from '@react-three/drei/native';
 import * as THREE from 'three';
-import { Colors, Typography, BorderRadius, Spacing } from '../constants/theme';
+import { ThemePalette, Typography, Spacing } from '../constants/theme';
+import { useAppTheme } from '../hooks/useAppTheme';
 
-type SpeedOption = 1 | 2 | 2.5;
-
-interface ModelProps {
-  uri: string;
-  autoRotateSpeed: number;
-  interactive?: boolean;
+interface GLBModelProps {
+  modelAsset: number;
+  interactive: boolean;
+  autoRotate: boolean;
 }
 
-function ShirtModel({ uri, autoRotateSpeed, interactive = false }: ModelProps) {
+interface CameraRigProps {
+  distance: number;
+}
+
+interface LightRigProps {
+  interactive: boolean;
+}
+
+interface SceneProps {
+  modelAsset: number;
+  interactive: boolean;
+  autoRotate: boolean;
+  zoomDistance: number;
+  resetSignal: number;
+  colors: ThemePalette;
+}
+
+export interface ModelViewerHandle {
+  zoomIn: () => void;
+  zoomOut: () => void;
+  resetView: () => void;
+}
+
+interface ModelViewerProps {
+  modelAsset: number;
+  interactive?: boolean;
+  autoRotate?: boolean;
+  style?: StyleProp<ViewStyle>;
+}
+
+const MIN_DISTANCE = 2.2;
+const MAX_DISTANCE = 6.2;
+const DEFAULT_DISTANCE = 4;
+const ZOOM_STEP = 0.35;
+
+function GLBModel({ modelAsset, interactive, autoRotate }: GLBModelProps) {
   const groupRef = useRef<THREE.Group>(null);
-  const { scene } = useGLTF(uri);
+  const { scene } = useGLTF(modelAsset as never) as { scene: THREE.Group };
 
   const clonedScene = useMemo(() => {
     const cloned = scene.clone();
@@ -26,28 +67,31 @@ function ShirtModel({ uri, autoRotateSpeed, interactive = false }: ModelProps) {
         child.receiveShadow = true;
       }
     });
+
+    cloned.position.set(0, 0, 0);
+    cloned.scale.set(1, 1, 1);
+    cloned.updateMatrixWorld(true);
+
+    const box = new THREE.Box3().setFromObject(cloned);
+    const size = box.getSize(new THREE.Vector3());
+    const maxDimension = Math.max(size.x, size.y, size.z);
+    const scale = maxDimension > 0 ? 2 / maxDimension : 1;
+
+    cloned.scale.setScalar(scale);
+    cloned.updateMatrixWorld(true);
+
+    const centeredBox = new THREE.Box3().setFromObject(cloned);
+    const center = centeredBox.getCenter(new THREE.Vector3());
+    cloned.position.sub(center);
+
     return cloned;
   }, [scene]);
 
   useFrame((_, delta) => {
-    if (groupRef.current && !interactive) {
-      groupRef.current.rotation.y += delta * autoRotateSpeed;
+    if (groupRef.current && !interactive && autoRotate) {
+      groupRef.current.rotation.y += delta * 0.42;
     }
   });
-
-  useEffect(() => {
-    if (groupRef.current) {
-      const box = new THREE.Box3().setFromObject(clonedScene);
-      const center = box.getCenter(new THREE.Vector3());
-      clonedScene.position.sub(center);
-      const size = box.getSize(new THREE.Vector3());
-      const maxDim = Math.max(size.x, size.y, size.z);
-      if (maxDim > 0) {
-        const scale = 2 / maxDim;
-        clonedScene.scale.setScalar(scale);
-      }
-    }
-  }, [clonedScene]);
 
   return (
     <group ref={groupRef}>
@@ -56,141 +100,174 @@ function ShirtModel({ uri, autoRotateSpeed, interactive = false }: ModelProps) {
   );
 }
 
-function ModelFallback() {
+function CameraRig({ distance }: CameraRigProps) {
+  const { camera } = useThree();
+
+  useFrame(() => {
+    const currentDistance = camera.position.length();
+    const nextDistance = THREE.MathUtils.lerp(currentDistance || DEFAULT_DISTANCE, distance, 0.18);
+
+    if (camera.position.lengthSq() === 0) {
+      camera.position.set(0, 0.15, nextDistance);
+    } else {
+      camera.position.setLength(nextDistance);
+    }
+
+    camera.updateProjectionMatrix();
+  });
+
   return null;
 }
 
-interface ModelViewerProps {
-  modelAsset: number;
-  showSpeedControls?: boolean;
-  interactive?: boolean;
-  style?: any;
-}
-
-export default function ModelViewer({
-  modelAsset,
-  showSpeedControls = false,
-  interactive = false,
-  style,
-}: ModelViewerProps) {
-  const [speed, setSpeed] = useState<SpeedOption>(1);
-  const [uri, setUri] = useState<string | null>(null);
-  const speeds: SpeedOption[] = [1, 2, 2.5];
-  const autoRotateSpeed = speed * 0.5;
+function FrontLight({ interactive }: LightRigProps) {
+  const { camera } = useThree();
+  const lightRef = useRef<THREE.DirectionalLight>(null);
+  const targetRef = useRef<THREE.Object3D>(new THREE.Object3D());
 
   useEffect(() => {
-    let cancelled = false;
-    async function loadAsset() {
-      try {
-        const asset = Asset.fromModule(modelAsset);
-        await asset.downloadAsync();
-        if (!cancelled) {
-          setUri(asset.localUri || asset.uri);
-        }
-      } catch (e) {
-        console.warn('Failed to load 3D model:', e);
-      }
+    if (lightRef.current) {
+      lightRef.current.target = targetRef.current;
     }
-    loadAsset();
-    return () => { cancelled = true; };
-  }, [modelAsset]);
+  }, []);
 
-  if (!uri) {
-    return (
-      <View style={[styles.container, styles.loadingContainer, style]}>
-        <ActivityIndicator color={Colors.gray500} size="small" />
-      </View>
+  useFrame(() => {
+    if (!lightRef.current) {
+      return;
+    }
+
+    const direction = camera.position.clone().normalize();
+    const depth = interactive ? 6.5 : 5.5;
+
+    lightRef.current.position.set(
+      direction.x * depth,
+      direction.y * depth + 0.5,
+      direction.z * depth + 1.2
     );
-  }
+    targetRef.current.position.set(0, 0, 0);
+    lightRef.current.target.updateMatrixWorld();
+  });
 
   return (
-    <View style={[styles.container, style]}>
-      <Canvas
-        style={styles.canvas}
-        camera={{ position: [0, 0, 4], fov: 35 }}
-        gl={{ antialias: true, alpha: true, powerPreference: 'high-performance' }}
-        dpr={Platform.OS === 'web' ? Math.min(window.devicePixelRatio, 2) : 1}
-        performance={{ min: 0.5 }}
-      >
-        <ambientLight intensity={0.6} />
-        <directionalLight position={[5, 5, 5]} intensity={1.2} />
-        <directionalLight position={[-3, 3, -3]} intensity={0.4} />
-        <pointLight position={[0, 5, 0]} intensity={0.3} />
-        <Suspense fallback={<ModelFallback />}>
-          <ShirtModel
-            uri={uri}
-            autoRotateSpeed={autoRotateSpeed}
-            interactive={interactive}
-          />
-        </Suspense>
-        {interactive && (
-          <OrbitControls
-            enablePan={false}
-            enableZoom={true}
-            minDistance={2}
-            maxDistance={8}
-            rotateSpeed={0.8}
-            zoomSpeed={0.8}
-          />
-        )}
-      </Canvas>
+    <>
+      <primitive object={targetRef.current} />
+      <directionalLight ref={lightRef} intensity={2.6} />
+    </>
+  );
+}
 
-      {showSpeedControls && (
-        <View style={styles.speedControls}>
-          {speeds.map((s) => (
-            <TouchableOpacity
-              key={s}
-              style={[styles.speedButton, speed === s && styles.speedButtonActive]}
-              onPress={() => setSpeed(s)}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.speedText, speed === s && styles.speedTextActive]}>
-                {s}x
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      )}
+function Scene({ modelAsset, interactive, autoRotate, zoomDistance, resetSignal, colors }: SceneProps) {
+  const controlsRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (!interactive || !controlsRef.current) {
+      return;
+    }
+
+    controlsRef.current.target.set(0, 0, 0);
+    controlsRef.current.reset();
+    controlsRef.current.update();
+  }, [interactive, resetSignal]);
+
+  return (
+    <>
+      <color attach="background" args={[colors.gray900]} />
+      <ambientLight intensity={1.1} />
+      <hemisphereLight args={[colors.white, colors.gray700, 1.35]} />
+      <FrontLight interactive={interactive} />
+      <pointLight position={[0, -2.2, 2.4]} intensity={0.45} />
+      <CameraRig distance={zoomDistance} />
+      <GLBModel modelAsset={modelAsset} interactive={interactive} autoRotate={autoRotate} />
+      {interactive ? (
+        <OrbitControls
+          ref={controlsRef}
+          enablePan={false}
+          enableZoom={true}
+          enableRotate={true}
+          rotateSpeed={0.9}
+          minDistance={MIN_DISTANCE}
+          maxDistance={MAX_DISTANCE}
+          minPolarAngle={Math.PI / 2.9}
+          maxPolarAngle={Math.PI / 1.65}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function Loader({ colors }: { colors: ThemePalette }) {
+  return (
+    <View style={[styles.centered, { backgroundColor: colors.gray900 }]}>
+      <ActivityIndicator color={colors.accent} size="large" />
+      <Text style={[styles.loadingText, { color: colors.gray300 }]}>Loading model</Text>
     </View>
   );
 }
 
+const ModelViewer = forwardRef<ModelViewerHandle, ModelViewerProps>(
+  ({ modelAsset, interactive = true, autoRotate = false, style }, ref) => {
+    const { colors } = useAppTheme();
+    const [zoomDistance, setZoomDistance] = useState(DEFAULT_DISTANCE);
+    const [resetSignal, setResetSignal] = useState(0);
+
+    useImperativeHandle(ref, () => ({
+      zoomIn: () => {
+        setZoomDistance((value) => Math.max(MIN_DISTANCE, value - ZOOM_STEP));
+      },
+      zoomOut: () => {
+        setZoomDistance((value) => Math.min(MAX_DISTANCE, value + ZOOM_STEP));
+      },
+      resetView: () => {
+        setZoomDistance(DEFAULT_DISTANCE);
+        setResetSignal((value) => value + 1);
+      },
+    }));
+
+    return (
+      <View style={[styles.container, { backgroundColor: colors.gray900 }, style]}>
+        <Suspense fallback={<Loader colors={colors} />}>
+          <Canvas style={styles.canvas} camera={{ position: [0, 0.15, DEFAULT_DISTANCE], fov: 32 }}>
+            <Scene
+              modelAsset={modelAsset}
+              interactive={interactive}
+              autoRotate={autoRotate}
+              zoomDistance={zoomDistance}
+              resetSignal={resetSignal}
+              colors={colors}
+            />
+          </Canvas>
+        </Suspense>
+      </View>
+    );
+  }
+);
+
+ModelViewer.displayName = 'ModelViewer';
+
+export default ModelViewer;
+
 const styles = StyleSheet.create({
   container: {
     overflow: 'hidden',
-    backgroundColor: Colors.gray900,
+    backgroundColor: '#0D1016',
   },
-  loadingContainer: {
+  centered: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: '#0D1016',
+    zIndex: 10,
   },
   canvas: {
     flex: 1,
   },
-  speedControls: {
-    position: 'absolute',
-    bottom: Spacing.md,
-    right: Spacing.md,
-    flexDirection: 'row',
-    gap: Spacing.xs,
-    backgroundColor: Colors.overlay,
-    borderRadius: BorderRadius.full,
-    padding: Spacing.xs,
-  },
-  speedButton: {
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: Spacing.xs,
-    borderRadius: BorderRadius.full,
-  },
-  speedButtonActive: {
-    backgroundColor: Colors.white,
-  },
-  speedText: {
-    ...Typography.label,
-    color: Colors.gray300,
+  loadingText: {
+    ...Typography.caption,
+    color: '#B4BBC8',
     fontFamily: 'Inter-Medium',
-  },
-  speedTextActive: {
-    color: Colors.black,
+    marginTop: Spacing.sm,
   },
 });
