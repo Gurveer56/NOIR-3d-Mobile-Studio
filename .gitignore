@@ -27,4 +27,7 @@ yarn-error.*
 .env*.local
 .env
 
+.expo-start.err.log
+.expo-start.log
+
 *.tsbuildinfo
